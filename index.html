@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Регистрации участников</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="top-text">
+      <h1>Регистрации участников</h1>
+      <p class="lead" id="lead" aria-live="polite">Загрузка данных…</p>
+    </div>
+    <div class="top-actions">
+      <label class="btn" for="file">Загрузить CSV</label>
+      <input id="file" type="file" accept=".csv,text/csv,text/plain" hidden>
+      <button class="btn" id="export" type="button">Скачать выборку</button>
+      <button class="btn ghost" id="sample" type="button">Пример данных</button>
+    </div>
+  </header>
+
+  <p class="notice" id="notice" role="status" hidden></p>
+
+  <section class="filters" aria-label="Фильтры">
+    <label class="field"><span>Город</span><select id="f-city"></select></label>
+    <label class="field"><span>Источник</span><select id="f-source"></select></label>
+    <label class="field"><span>Билет</span><select id="f-ticket"></select></label>
+    <label class="field"><span>Оплата</span>
+      <select id="f-paid"><option value="">Любая</option><option value="yes">Оплачено</option><option value="no">Не оплачено</option></select>
+    </label>
+    <label class="field"><span>Дата с</span><input id="f-from" type="date"></label>
+    <label class="field"><span>Дата по</span><input id="f-to" type="date"></label>
+    <label class="field grow"><span>Поиск по имени</span><input id="f-q" type="search" placeholder="Например, Айгерим" autocomplete="off"></label>
+    <button class="btn ghost" id="reset" type="button" hidden>Сбросить фильтры</button>
+  </section>
+
+  <section class="kpis" aria-label="Основные показатели" id="kpis"></section>
+
+  <section class="card">
+    <div class="card-h">
+      <h2>Регистрации по дням</h2>
+      <div class="legend"><span><i class="sw paid"></i>Оплачено</span><span><i class="sw unpaid"></i>Не оплачено</span></div>
+    </div>
+    <div class="chart" id="chart-daily"></div>
+  </section>
+
+  <section class="grid3" aria-label="Разрезы">
+    <div class="card"><div class="card-h"><h2>Источники</h2><span class="hint">нажмите, чтобы отфильтровать</span></div><div class="chart" id="chart-source"></div></div>
+    <div class="card"><div class="card-h"><h2>Города</h2><span class="hint">нажмите, чтобы отфильтровать</span></div><div class="chart" id="chart-city"></div></div>
+    <div class="card"><div class="card-h"><h2>Типы билетов</h2><span class="hint">нажмите, чтобы отфильтровать</span></div><div class="chart" id="chart-ticket"></div></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <h2>Участники</h2>
+      <span class="hint" id="count"></span>
+    </div>
+    <div class="tablewrap">
+      <table id="table">
+        <thead><tr>
+          <th data-sort="name" tabindex="0">Участник</th>
+          <th data-sort="city" tabindex="0">Город</th>
+          <th data-sort="registered" tabindex="0">Дата регистрации</th>
+          <th data-sort="source" tabindex="0">Источник</th>
+          <th data-sort="ticket" tabindex="0">Билет</th>
+          <th data-sort="paid" tabindex="0">Оплата</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <details class="note">
+    <summary>Формат файла и как считаются показатели</summary>
+    <p>Файл CSV с заголовком: <code>name, city, registered, source, ticket, paid</code>. Разделитель — запятая или точка с запятой, дата — <code>ГГГГ-ММ-ДД</code>, в столбце <code>paid</code> значения «да» / «нет». Оплатили — участники со значением «да»; процент считается от числа выбранных регистраций. В графиках по источникам, городам и билетам не действует фильтр по их собственному признаку, чтобы можно было сравнить значения и переключиться на другое. Файл обрабатывается только в вашем браузере и никуда не отправляется.</p>
+  </details>
+</div>
+
+<div class="tip" id="tip" hidden></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
