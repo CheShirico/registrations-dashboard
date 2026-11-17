@@ -44,6 +44,9 @@
   .pct span { position: relative; z-index: 1; padding: 0 6px; }
   .msg { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: var(--card); border: 1px solid var(--line); }
   .msg.err { border-color: var(--unpaid); color: var(--unpaid); }
+  .msg.warn { border-color: #d9a400; background: color-mix(in srgb, #d9a400 12%, var(--card)); }
+  .msg b { display: block; margin-bottom: 4px; }
+  .msg ul { margin: 0; padding-left: 20px; }
 
   @media (max-width: 760px) { .kpis, .tables { grid-template-columns: 1fr; } }
 </style>
@@ -61,7 +64,7 @@
     </div>
   </header>
 
-  <p class="msg err" id="err" hidden></p>
+  <div id="msgs" aria-live="polite"></div>
 
   <section class="kpis" aria-label="Итоги">
     <div class="kpi"><span class="l">Всего регистраций</span><span class="v" id="k-total">–</span><span class="s">&nbsp;</span></div>
@@ -75,44 +78,57 @@
   </section>
 </div>
 
-<script type="text/plain" id="csv">city,source,paid
-Астана,Telegram,да
-Актобе,Email-рассылка,да
-Астана,Сайт,да
-Астана,Telegram,да
-Астана,Email-рассылка,да
-Астана,Instagram,да
-Алматы,Telegram,да
-Алматы,Сайт,да
-Астана,Email-рассылка,да
-Актобе,Email-рассылка,да
-Алматы,Email-рассылка,да
-Алматы,Партнёры,да
-Астана,Telegram,нет
-Алматы,Telegram,нет
-Астана,Instagram,да
-Караганда,Instagram,да
-Алматы,Сайт,нет
-Шымкент,Instagram,нет
-Караганда,Telegram,нет
-Астана,Email-рассылка,да
-Шымкент,Telegram,нет
-Караганда,Telegram,да
-Алматы,Партнёры,да
-Караганда,Партнёры,нет
-Шымкент,Telegram,да
-Алматы,Telegram,да
-Астана,Instagram,да
-Караганда,Instagram,нет
-Астана,Instagram,нет
-Астана,Сайт,нет
+<script type="text/plain" id="csv">city,registered,source,paid
+Астана,2026-10-30,Telegram,да
+Актобе,2026-10-22,Email-рассылка,да
+Астана,2026-11-07,Сайт,да
+Астана,2026-10-21,Telegram,да
+Астана,2026-10-27,Email-рассылка,да
+Астана,2026-11-07,Instagram,да
+Алматы,2026-11-07,Telegram,да
+Алматы,2026-10-21,Сайт,да
+Астана,2026-11-02,Email-рассылка,да
+Актобе,2026-11-06,Email-рассылка,да
+Алматы,2026-11-07,Email-рассылка,да
+Алматы,2026-10-23,Партнёры,да
+Астана,2026-11-08,Telegram,нет
+Алматы,2026-11-13,Telegram,нет
+Астана,2026-10-31,Instagram,да
+Караганда,2026-11-11,Instagram,да
+Алматы,2026-11-05,Сайт,нет
+Шымкент,2026-10-29,Instagram,нет
+Караганда,2026-10-25,Telegram,нет
+Астана,2026-11-02,Email-рассылка,да
+Шымкент,2026-10-30,Telegram,нет
+Караганда,2026-11-07,Telegram,да
+Алматы,2026-10-28,Партнёры,да
+Караганда,2026-10-21,Партнёры,нет
+Шымкент,2026-10-29,Telegram,да
+Алматы,2026-10-20,Telegram,да
+Астана,2026-11-04,Instagram,да
+Караганда,2026-10-24,Instagram,нет
+Астана,2026-11-04,Instagram,нет
+Астана,2026-11-06,Сайт,нет
 </script>
 
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
-const YES = new Set(['да', 'yes', 'true', '1', 'y']);
+const YES = new Set(['да', 'yes', 'true', '1', 'y', 'оплачено', 'оплатил', 'оплатила']);
+const NO = new Set(['нет', 'no', 'false', '0', 'n', 'не оплачено', 'не оплатил', 'не оплатила']);
+const TOTAL_RE = /^(итого|всего|total)$/i;
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
+/* ---------- чтение файла: кодировка ---------- */
+function decode(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xFF && b[1] === 0xFE) return { text: new TextDecoder('utf-16le').decode(b), enc: 'UTF-16' };
+  if (b[0] === 0xFE && b[1] === 0xFF) return { text: new TextDecoder('utf-16be').decode(b), enc: 'UTF-16' };
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(b), enc: 'UTF-8' }; }
+  catch { return { text: new TextDecoder('windows-1251').decode(b), enc: 'Windows-1251' }; }
+}
+
+/* ---------- разбор CSV ---------- */
 function parseCSV(text) {
   text = text.replace(/^﻿/, '');
   const first = text.split(/\r?\n/, 1)[0] || '';
@@ -135,21 +151,59 @@ function parseCSV(text) {
   return rows;
 }
 
+const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+const sample = (arr, n = 4) => arr.slice(0, n).join(', ') + (arr.length > n ? ' и ещё ' + (arr.length - n) : '');
+
 function toRecords(text) {
   const t = parseCSV(text);
   if (t.length < 2) throw new Error('В файле нет строк с данными.');
   const head = t[0].map((h) => h.trim().toLowerCase());
-  const need = ['city', 'source', 'paid'];
-  const miss = need.filter((c) => !head.includes(c));
+  const miss = ['city', 'source', 'paid'].filter((c) => !head.includes(c));
   if (miss.length) throw new Error('Не найдены столбцы: ' + miss.join(', ') + '. Нужны минимум: city, source, paid.');
-  const ix = Object.fromEntries(need.map((c) => [c, head.indexOf(c)]));
-  return t.slice(1).map((r) => ({
-    city: (r[ix.city] || '').trim() || '(не указан)',
-    source: (r[ix.source] || '').trim() || '(не указан)',
-    paid: YES.has((r[ix.paid] || '').trim().toLowerCase()),
-  }));
+  const ix = (c) => head.indexOf(c);
+  const col = { city: ix('city'), source: ix('source'), paid: ix('paid'), name: ix('name'), reg: ix('registered') };
+  const cell = (r, c) => (c < 0 ? '' : (r[c] || '').trim());
+
+  const rows = [], warns = [];
+  let skipped = 0, emptyCity = 0, emptySource = 0, last = '';
+  const unknown = new Map(), seen = new Map(), dups = new Set();
+
+  for (const r of t.slice(1)) {
+    const city = cell(r, col.city), source = cell(r, col.source), name = cell(r, col.name);
+    if ([city, source, name].some((v) => TOTAL_RE.test(v))) { skipped++; continue; }
+    const raw = cell(r, col.paid), p = raw.toLowerCase();
+    let paid = false;
+    if (YES.has(p)) paid = true;
+    else if (!NO.has(p)) unknown.set(raw || '(пусто)', (unknown.get(raw || '(пусто)') || 0) + 1);
+    if (!city) emptyCity++;
+    if (!source) emptySource++;
+    const reg = cell(r, col.reg);
+    if (ISO.test(reg) && reg > last) last = reg;
+    if (name) {
+      const k = norm(name) + '|' + norm(city);
+      if (seen.has(k)) dups.add(name); else seen.set(k, 1);
+    }
+    rows.push({ city: city || '(не указан)', source: source || '(не указан)', paid });
+  }
+
+  if (skipped) warns.push(`Пропущено строк «Итого/Всего»: ${skipped} — они не считаются регистрациями.`);
+  if (unknown.size) {
+    const n = [...unknown.values()].reduce((a, b) => a + b, 0);
+    warns.push(`В столбце paid не распознано значений: ${n} (${sample([...unknown.keys()].map((k) => '«' + k + '»'))}). Они посчитаны как «не оплатили». Распознаются «да» и «нет».`);
+  }
+  if (emptyCity) warns.push(`Строк без города: ${emptyCity} (показаны как «(не указан)»).`);
+  if (emptySource) warns.push(`Строк без канала: ${emptySource} (показаны как «(не указан)»).`);
+  for (const [key, label] of [['city', 'городов'], ['source', 'каналов']]) {
+    const g = new Map();
+    rows.forEach((r) => { const k = norm(r[key]); (g.get(k) || g.set(k, new Set()).get(k)).add(r[key]); });
+    const similar = [...g.values()].filter((s) => s.size > 1).map((s) => [...s].join(' / '));
+    if (similar.length) warns.push(`Похожие написания ${label}: ${similar.join('; ')}. Они посчитаны отдельными строками.`);
+  }
+  if (dups.size) warns.push(`Повторяются участники (имя и город): ${sample([...dups])}. Каждая строка посчитана как отдельная регистрация.`);
+  return { rows, warns, last };
 }
 
+/* ---------- расчёт и вывод ---------- */
 function group(rows, key) {
   const m = new Map();
   for (const r of rows) {
@@ -161,6 +215,7 @@ function group(rows, key) {
 }
 
 const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+const fmtDate = (d) => d.slice(8) + '.' + d.slice(5, 7) + '.' + d.slice(0, 4);
 function td(text, cls) { const e = document.createElement('td'); e.textContent = text; if (cls) e.className = cls; return e; }
 
 function fillTable(tbl, label, list, total) {
@@ -193,27 +248,43 @@ function render(rows) {
   fillTable($('t-city'), 'Город', group(rows, 'city'), total);
 }
 
-function load(text, label) {
+function showMsgs(items) { // items: [{cls, title, lines[]}]
+  $('msgs').replaceChildren(...items.map(({ cls, title, lines }) => {
+    const box = document.createElement('div'); box.className = 'msg ' + cls;
+    if (title) { const b = document.createElement('b'); b.textContent = title; box.append(b); }
+    if (lines.length === 1 && !title) box.textContent = lines[0];
+    else { const ul = document.createElement('ul'); lines.forEach((l) => { const li = document.createElement('li'); li.textContent = l; ul.append(li); }); box.append(ul); }
+    return box;
+  }));
+}
+
+function load(text, label, enc, embedded) {
   try {
-    render(toRecords(text));
-    $('src').textContent = label;
-    $('err').hidden = true;
+    const { rows, warns, last } = toRecords(text);
+    render(rows);
+    const parts = [label, 'строк: ' + rows.length];
+    if (last) parts.push('последняя регистрация ' + fmtDate(last));
+    if (embedded) parts.push('данные вшиты в страницу и сами не обновляются');
+    $('src').textContent = parts.join(' · ');
+    const msgs = [];
+    if (enc && enc !== 'UTF-8') msgs.push({ cls: '', lines: ['Файл не в UTF-8, прочитан как ' + enc + '.'] });
+    if (warns.length) msgs.push({ cls: 'warn', title: 'Проверьте данные:', lines: warns });
+    showMsgs(msgs);
   } catch (e) {
-    $('err').textContent = 'Не удалось загрузить файл. ' + e.message;
-    $('err').hidden = false;
+    showMsgs([{ cls: 'err', lines: ['Не удалось загрузить файл. ' + e.message + ' Ниже остались прежние данные.'] }]);
   }
 }
 
 $('file').addEventListener('change', (e) => {
   const f = e.target.files[0]; if (!f) return;
   const rd = new FileReader();
-  rd.onload = () => load(String(rd.result), f.name);
-  rd.onerror = () => { $('err').textContent = 'Не удалось прочитать файл.'; $('err').hidden = false; };
-  rd.readAsText(f, 'utf-8');
+  rd.onload = () => { const { text, enc } = decode(rd.result); load(text, f.name, enc, false); };
+  rd.onerror = () => showMsgs([{ cls: 'err', lines: ['Не удалось прочитать файл.'] }]);
+  rd.readAsArrayBuffer(f);
   e.target.value = '';
 });
 
-load($('csv').textContent, 'registrations.csv');
+load($('csv').textContent, 'registrations.csv', 'UTF-8', true);
 </script>
 </body>
 </html>
